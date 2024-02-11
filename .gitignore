@@ -103,3 +103,7 @@ dist
 # Rawon cache directories and files
 data.json
 scripts/
+
+# data
+intros.json
+outros.json

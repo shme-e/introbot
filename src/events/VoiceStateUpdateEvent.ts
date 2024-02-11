@@ -6,8 +6,11 @@ import { BaseEvent } from "../structures/BaseEvent.js";
 import { Event } from "../utils/decorators/Event.js";
 import { QueueSong } from "../typings/index.js";
 import i18n from "../config/index.js";
-import { AudioPlayerPausedState, entersState, VoiceConnectionStatus } from "@discordjs/voice";
-import { Message, StageChannel, VoiceState, VoiceChannel, ChannelType } from "discord.js";
+import { AudioPlayerPausedState, entersState, joinVoiceChannel, VoiceConnectionStatus } from "@discordjs/voice";
+import { Message, StageChannel, VoiceState, VoiceChannel, ChannelType, TextChannel } from "discord.js";
+import { readFileSync } from "node:fs";
+import { CommandContext } from "../structures/CommandContext.js";
+import { log } from "node:console";
 
 @Event<typeof VoiceStateUpdateEvent>("voiceStateUpdate")
 export class VoiceStateUpdateEvent extends BaseEvent {
@@ -44,21 +47,91 @@ export class VoiceStateUpdateEvent extends BaseEvent {
             ]);
         }
 
-        const queue = newState.guild.queue;
-        if (!queue) return;
-
         const newVC = newState.channel;
         const oldVC = oldState.channel;
         const newID = newVC?.id;
         const oldID = oldVC?.id;
+        const member = newState.member;
+        const oldMember = oldState.member;
+        const botID = this.client.user?.id;
+
+        if (!oldState.channelId && !!newState.channelId && oldMember?.id !== botID) {
+            const playCommand = this.client.commands.get("play");
+            const skipCommand = this.client.commands.get("skip");
+
+            this.client.guilds.fetch("586230970718355456").then(guild => {
+                this.client.channels.fetch("1131959773529645056").then(channel => {
+                    const textChannel = channel as TextChannel
+
+                    const raw = readFileSync("intros.json", {encoding: "utf-8"});
+                    const intros: {[key: string]: {query: string, unlimited: false, length: number} | {query: string, unlimited: true}} = JSON.parse(raw);
+
+                    if (member?.id && member.id in intros) {
+                        joinVoiceChannel({
+                            channelId: "586230971699953665",
+                            guildId: "586230970718355456",
+                            adapterCreator: guild.voiceAdapterCreator
+                        });
+
+                        textChannel.send(`STARTING ${member.displayName} INTRO`).then(message => {
+                            const intro = intros[member.id];
+                            playCommand?.execute(new CommandContext(message, [intro.query]));
+
+                            if (!intro.unlimited) {
+                                setTimeout(() => {
+                                    textChannel.send(`ENDING ${member.displayName} INTRO`).then(message => {
+                                        skipCommand?.execute(new CommandContext(message));
+                                    });
+                                }, intro.length * 1000);
+                            }
+                        });
+                    }
+                })
+            })
+        }
+
+        if (!!oldState.channelId && !newState.channelId) {
+            const playCommand = this.client.commands.get("play");
+            const skipCommand = this.client.commands.get("skip");
+
+            this.client.guilds.fetch("586230970718355456").then(guild => {
+                this.client.channels.fetch("1131959773529645056").then(channel => {
+                    const textChannel = channel as TextChannel
+
+                    const raw = readFileSync("outros.json", {encoding: "utf-8"});
+                    const outros: {[key: string]: {query: string, unlimited: false, length: number} | {query: string, unlimited: true}} = JSON.parse(raw);
+
+                    if (member?.id && member.id in outros) {
+                        joinVoiceChannel({
+                            channelId: "586230971699953665",
+                            guildId: "586230970718355456",
+                            adapterCreator: guild.voiceAdapterCreator
+                        });
+
+                        textChannel.send(`STARTING ${member.displayName} OUTRO`).then(message => {
+                            const outro = outros[member.id];
+                            playCommand?.execute(new CommandContext(message, [outro.query]));
+
+                            if (!outro.unlimited) {
+                                setTimeout(() => {
+                                    textChannel.send(`ENDING ${member.displayName} OUTRO`).then(message => {
+                                        skipCommand?.execute(new CommandContext(message));
+                                    });
+                                }, outro.length * 1000);
+                            }
+                        });
+                    }
+                })
+            })
+        }
+
+        const queue = newState.guild.queue;
+        if (!queue) return;
         const queueVC = newState.guild.channels.cache.get(queue.connection!.joinConfig.channelId!)! as
             | StageChannel
             | VoiceChannel;
-        const member = newState.member;
-        const oldMember = oldState.member;
         const newVCMembers = newVC?.members.filter(m => !m.user.bot);
         const queueVCMembers = queueVC.members.filter(m => !m.user.bot);
-        const botID = this.client.user?.id;
 
         if (oldMember?.id === botID && oldID === queueVC.id && newID === undefined) {
             const isIdle = queue.idle;
